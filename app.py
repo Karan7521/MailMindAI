@@ -3,6 +3,9 @@ import re
 import json
 import html
 import textwrap
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 from html.parser import HTMLParser
 import streamlit as st
 import streamlit.components.v1 as components
@@ -96,6 +99,10 @@ THEMES = {
     },
 }
 
+EMAIL_VALIDATION_API_KEY = os.getenv(
+    "ABSTRACT_EMAIL_VALIDATION_API_KEY"
+)
+
 
 # =========================================================
 # SESSION STATE
@@ -121,6 +128,15 @@ if "ui_theme" not in st.session_state:
 
 if "show_appearance" not in st.session_state:
     st.session_state.show_appearance = False
+
+if "user_email" not in st.session_state:
+    st.session_state.user_email = ""
+
+if "registered_users" not in st.session_state:
+    st.session_state.registered_users = {}
+
+if "login_mode" not in st.session_state:
+    st.session_state.login_mode = "Log in"
 
 
 def render_html(content):
@@ -1548,6 +1564,53 @@ def get_email_address(sender):
     return sender.strip()
 
 
+def validate_email_address(email):
+    """Validate an address format and, when configured, verify its deliverability."""
+    normalized_email = email.strip().lower()
+
+    if not re.fullmatch(
+        r"[^\s@]+@[^\s@]+\.[^\s@]+",
+        normalized_email,
+    ):
+        return False, "Enter a valid email address."
+
+    if not EMAIL_VALIDATION_API_KEY:
+        return True, ""
+
+    query = urlencode(
+        {
+            "api_key": EMAIL_VALIDATION_API_KEY,
+            "email": normalized_email,
+        }
+    )
+    request = Request(
+        f"https://emailvalidation.abstractapi.com/v1/?{query}",
+        headers={"Accept": "application/json"},
+    )
+
+    try:
+        with urlopen(request, timeout=8) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError):
+        return (
+            True,
+            "Email verification is temporarily unavailable. Format checked.",
+        )
+
+    format_valid = result.get("is_valid_format", {}).get("value", False)
+    smtp_valid = result.get("is_smtp_valid", {}).get("value", False)
+    mx_found = result.get("is_mx_found", {}).get("value", False)
+    is_disposable = result.get("is_disposable_email", {}).get("value", False)
+
+    if not format_valid or not mx_found or not smtp_valid:
+        return False, "This email address could not be verified. Check it and try again."
+
+    if is_disposable:
+        return False, "Disposable email addresses are not supported."
+
+    return True, ""
+
+
 def classify_all_emails():
     if not st.session_state.emails:
         st.warning("No emails available for analysis.")
@@ -1620,6 +1683,420 @@ def get_filtered_emails(search_query="", category_filter="All"):
 
 
 # =========================================================
+# LOGIN PAGE
+# =========================================================
+
+if not st.session_state.user_email:
+    st.markdown(
+        """
+        <style>
+        .login-page {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding-top: 1.5rem;
+        }
+
+        header[data-testid="stHeader"] {
+            display: none !important;
+        }
+
+        [data-testid="stAppViewContainer"] > .main {
+            padding-top: 0 !important;
+        }
+
+        .login-visual {
+            min-height: 520px;
+            padding: 48px 42px;
+            border-radius: 24px;
+            background: linear-gradient(145deg, #173247 0%, #237b73 100%);
+            color: #f8fafc;
+            box-shadow: 0 24px 60px rgba(23, 50, 71, 0.18);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .login-visual::after {
+            content: "";
+            position: absolute;
+            width: 220px;
+            height: 220px;
+            right: -70px;
+            bottom: -80px;
+            border: 1px solid rgba(242, 193, 78, 0.38);
+            border-radius: 50%;
+            box-shadow: 0 0 0 28px rgba(242, 193, 78, 0.08),
+                0 0 0 58px rgba(242, 193, 78, 0.05);
+        }
+
+        .login-kicker {
+            color: #f2c14e;
+            font-size: 0.76rem;
+            font-weight: 800;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .login-visual h1 {
+            max-width: 420px;
+            margin: 56px 0 16px;
+            color: #f8fafc;
+            font-size: clamp(2.1rem, 4vw, 3.4rem);
+            line-height: 1.05;
+        }
+
+        .login-visual p {
+            max-width: 390px;
+            color: #d5e1e0;
+            font-size: 1.05rem;
+            line-height: 1.65;
+        }
+
+        .login-benefits {
+            margin-top: 48px;
+            color: #f8fafc;
+            font-size: 0.92rem;
+            line-height: 2.2;
+        }
+
+        .login-benefits span {
+            color: #f2c14e;
+            margin-right: 8px;
+        }
+
+        .login-form-heading {
+            margin: 0 0 0.35rem;
+            color: #172033;
+            font-size: 1.65rem;
+            font-weight: 800;
+        }
+
+        .login-form-copy {
+            margin: 0 0 1.2rem;
+            color: #687486;
+            font-size: 0.94rem;
+        }
+
+        .login-note {
+            margin-top: 1rem;
+            color: #687486;
+            font-size: 0.82rem;
+            text-align: center;
+        }
+
+        .login-page div.stButton > button {
+            min-height: 46px;
+            border: 1px solid #c6e1dc !important;
+            border-radius: 12px !important;
+            background: #edf6f4 !important;
+            color: #237b73 !important;
+            box-shadow: none !important;
+            font-weight: 700;
+        }
+
+        .login-page div.stButton > button:hover {
+            border-color: #237b73 !important;
+            background: #e1f0ed !important;
+        }
+
+        .login-page div.stButton > button[kind="primary"] {
+            border-color: #237b73 !important;
+            background: #237b73 !important;
+            color: #ffffff !important;
+        }
+
+        .login-page .stTextInput input {
+            border: 0 !important;
+            border-radius: 12px !important;
+            background: transparent !important;
+            box-shadow: none !important;
+        }
+
+        .login-page div[data-testid="stTextInput"] div[data-baseweb="input"] {
+            min-height: 48px;
+            border: 1px solid #d7dedb !important;
+            border-radius: 12px !important;
+            background: #ffffff !important;
+            outline: none !important;
+            box-shadow: 0 4px 14px rgba(23, 50, 71, 0.05) !important;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .login-page div[data-baseweb="input"] {
+            border: 1px solid #d7dedb !important;
+            outline: none !important;
+        }
+
+        .login-page div[data-baseweb="base-input"] {
+            border: 0 !important;
+            outline: none !important;
+            box-shadow: none !important;
+        }
+
+        .login-page div[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within,
+        .login-page div[data-baseweb="input"]:focus-within {
+            border-color: #d7dedb !important;
+            box-shadow: 0 0 0 2px rgba(215, 222, 219, 0.45) !important;
+        }
+
+        .login-page .react-aria-TextField > div:focus,
+        .login-page .react-aria-TextField > div:focus-visible,
+        .login-page .react-aria-TextField input:focus,
+        .login-page .react-aria-TextField input:focus-visible {
+            outline: none !important;
+            border-color: #d7dedb !important;
+            box-shadow: none !important;
+        }
+
+        div[data-testid="stTextInput"] input {
+            border: 0 !important;
+            outline: none !important;
+            box-shadow: none !important;
+            background: transparent !important;
+        }
+
+        div[data-testid="stTextInput"] div[data-baseweb="input"] {
+            border: 1px solid #d7dedb !important;
+            outline: none !important;
+            border-radius: 12px !important;
+            background: #ffffff !important;
+            box-shadow: 0 4px 14px rgba(23, 50, 71, 0.05) !important;
+        }
+
+        div[data-testid="stTextInput"] div[data-baseweb="input"]:focus-within {
+            border-color: #d7dedb !important;
+            box-shadow: 0 0 0 2px rgba(215, 222, 219, 0.45) !important;
+        }
+
+        .react-aria-TextField > div {
+            min-height: 48px;
+            border: 1px solid #d7dedb !important;
+            border-radius: 12px !important;
+            background: #ffffff !important;
+            box-shadow: 0 4px 14px rgba(23, 50, 71, 0.05) !important;
+        }
+
+        .react-aria-TextField > div:focus-within {
+            border-color: #d7dedb !important;
+            box-shadow: 0 0 0 2px rgba(215, 222, 219, 0.45) !important;
+        }
+
+        div[data-baseweb="input"]:has(input[type="password"]),
+        div[data-baseweb="input"]:has(input[type="text"]) {
+            background: #ffffff !important;
+            border: 1px solid #d7dedb !important;
+            border-radius: 12px !important;
+        }
+
+        input[type="password"],
+        input[type="text"] {
+            color: #172033 !important;
+            background: #ffffff !important;
+        }
+
+        button[aria-label="Show password"] {
+            background: #ffffff !important;
+            color: #237b73 !important;
+        }
+
+        header[data-testid="stHeader"] {
+            background: #172b3a !important;
+        }
+
+        header[data-testid="stHeader"] button {
+            color: #ffffff !important;
+        }
+
+        header[data-testid="stHeader"] button:hover {
+            background: rgba(255, 255, 255, 0.12) !important;
+        }
+
+        @media (max-width: 800px) {
+            .login-page {
+                margin-top: 1rem;
+                padding-top: 0;
+            }
+
+            .login-visual {
+                min-height: auto;
+                padding: 32px 26px;
+            }
+
+            .login-visual h1 {
+                margin-top: 32px;
+            }
+
+            .login-benefits {
+                margin-top: 24px;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="login-page">', unsafe_allow_html=True)
+    visual_column, form_column = st.columns([1.1, 0.9], gap="large")
+
+    with visual_column:
+        st.markdown(
+            """
+            <div class="login-visual">
+                <div class="login-kicker">✦ MailMind AI</div>
+                <h1>Your inbox, made clearer.</h1>
+                <p>Turn a busy inbox into a focused daily queue with intelligent triage, calm organization, and faster replies.</p>
+                <div class="login-benefits">
+                    <div><span>✓</span> See what needs your attention first</div>
+                    <div><span>✓</span> Draft thoughtful replies in less time</div>
+                    <div><span>✓</span> Keep your workflow moving</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with form_column:
+        login_mode_column, new_user_mode_column = st.columns(2, gap="small")
+        with login_mode_column:
+            login_mode_clicked = st.button(
+                "Log in",
+                key="login_mode_button",
+                type=(
+                    "primary"
+                    if st.session_state.login_mode == "Log in"
+                    else "secondary"
+                ),
+                use_container_width=True,
+            )
+
+        with new_user_mode_column:
+            new_user_mode_clicked = st.button(
+                "New user",
+                key="new_user_mode_button",
+                type=(
+                    "primary"
+                    if st.session_state.login_mode == "New user"
+                    else "secondary"
+                ),
+                use_container_width=True,
+            )
+
+        if login_mode_clicked and st.session_state.login_mode != "Log in":
+            st.session_state.login_mode = "Log in"
+            st.rerun()
+
+        if new_user_mode_clicked and st.session_state.login_mode != "New user":
+            st.session_state.login_mode = "New user"
+            st.rerun()
+
+        if st.session_state.login_mode == "Log in":
+            st.markdown(
+                """
+                <div class="login-form-heading">Welcome back</div>
+                <p class="login-form-copy">Sign in to open your inbox workspace.</p>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                """
+                <div class="login-form-heading">Create your workspace</div>
+                <p class="login-form-copy">Set up your account and bring calm to your inbox.</p>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        if st.session_state.login_mode == "Log in":
+            with st.form("login_form"):
+                email = st.text_input(
+                    "Email address",
+                    placeholder="you@example.com",
+                )
+                password = st.text_input(
+                    "Password",
+                    type="password",
+                    placeholder="Enter your password",
+                )
+                submitted = st.form_submit_button(
+                    "Log in",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if submitted:
+                normalized_email = email.strip().lower()
+                registered_password = st.session_state.registered_users.get(
+                    normalized_email
+                )
+                email_is_valid, email_error = validate_email_address(
+                    normalized_email
+                )
+
+                if not email_is_valid:
+                    st.error(email_error)
+                elif registered_password is None:
+                    st.info("No account found. Choose New user to create one.")
+                elif password != registered_password:
+                    st.error("That password does not match this account.")
+                else:
+                    st.session_state.user_email = normalized_email
+                    st.rerun()
+        else:
+            with st.form("register_form"):
+                name = st.text_input(
+                    "Your name",
+                    placeholder="Alex Morgan",
+                )
+                email = st.text_input(
+                    "Email address",
+                    placeholder="you@example.com",
+                )
+                password = st.text_input(
+                    "Create password",
+                    type="password",
+                    placeholder="At least 8 characters",
+                )
+                confirm_password = st.text_input(
+                    "Confirm password",
+                    type="password",
+                    placeholder="Repeat your password",
+                )
+                submitted = st.form_submit_button(
+                    "Create account",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if submitted:
+                normalized_email = email.strip().lower()
+                email_is_valid, email_error = validate_email_address(
+                    normalized_email
+                )
+
+                if not name.strip():
+                    st.error("Enter your name.")
+                elif not email_is_valid:
+                    st.error(email_error)
+                elif len(password) < 8:
+                    st.error("Use a password with at least 8 characters.")
+                elif password != confirm_password:
+                    st.error("The passwords do not match.")
+                elif normalized_email in st.session_state.registered_users:
+                    st.error("An account with this email already exists.")
+                else:
+                    st.session_state.registered_users[normalized_email] = password
+                    st.session_state.user_email = normalized_email
+                    st.rerun()
+
+        st.markdown(
+            '<div class="login-note">Private workspace access for your email triage.</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.stop()
+
+
+# =========================================================
 # SIDEBAR
 # =========================================================
 
@@ -1632,7 +2109,8 @@ with st.sidebar:
         </div>
 
         <div class="sidebar-subtitle">
-            Intelligent inbox automation
+            Intelligent inbox automation<br>
+            {html.escape(st.session_state.user_email)}
         </div>
         """,
         unsafe_allow_html=True,
@@ -1738,6 +2216,14 @@ with st.sidebar:
             '<div class="warning-box">○ Gmail Not Connected</div>',
             unsafe_allow_html=True,
         )
+
+    if st.button(
+        "↪  Sign out",
+        use_container_width=True,
+    ):
+        st.session_state.user_email = ""
+        st.session_state.gmail_service = None
+        st.rerun()
 
 
 # =========================================================

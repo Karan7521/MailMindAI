@@ -57,7 +57,10 @@ GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-1.5-flash
+ABSTRACT_EMAIL_VALIDATION_API_KEY=your_abstract_api_key
 ```
+
+The optional Abstract API key enables deliverability checks for login and new-user email addresses. Without it, the app still checks the email format locally.
 
 Copy your Google OAuth client file to `credentials.json` only for local development. Generate a refresh token with:
 
