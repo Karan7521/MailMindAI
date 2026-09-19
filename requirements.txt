@@ -1,0 +1,15 @@
+streamlit
+pytest
+langchain
+langgraph
+langchain-openai
+langchain-google-genai
+python-dotenv
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-genai
+openai
+pandas
+matplotlib
