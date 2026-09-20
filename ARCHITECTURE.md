@@ -19,6 +19,7 @@ flowchart TD
     UI --> Reply[AI reply generator]
     Reply --> Draft[Gmail draft creation]
     Draft --> GmailAPI
+
 ```
 
 ## Runtime Components
@@ -35,7 +36,7 @@ The main application owns:
 - Email detail, reply, and draft actions
 - HTML email preview behavior
 
-Session state stores the current Gmail service, loaded emails, classified emails, current page, sync status, theme selection, generated replies, and appearance state.
+Session state stores the current Gmail service, loaded emails, classified emails, current page, sync status, theme, and generated replies.
 
 ### `tools/gmail_tool.py`
 
@@ -48,9 +49,6 @@ This module is the Gmail boundary. It provides:
 - Plain-text and HTML body extraction
 - Inline `cid:` image conversion to data URLs
 - Gmail draft creation
-- Gmail label modification
-
-The UI does not call Gmail API methods directly. It uses this module so Gmail-specific behavior remains isolated.
 
 ### `agents/`
 

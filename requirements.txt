@@ -5,6 +5,7 @@ langgraph
 langchain-openai
 langchain-google-genai
 python-dotenv
+supabase
 google-api-python-client
 google-auth
 google-auth-oauthlib

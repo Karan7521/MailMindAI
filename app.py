@@ -2,6 +2,7 @@ import os
 import re
 import json
 import html
+import time
 import textwrap
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -12,6 +13,13 @@ import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 import tools.gmail_tool as gmail_tool
+from tools.supabase_auth import (
+    SupabaseAuthError,
+    request_password_reset,
+    sign_in,
+    sign_out,
+    sign_up,
+)
 
 load_dotenv()
 
@@ -132,11 +140,11 @@ if "show_appearance" not in st.session_state:
 if "user_email" not in st.session_state:
     st.session_state.user_email = ""
 
-if "registered_users" not in st.session_state:
-    st.session_state.registered_users = {}
-
 if "login_mode" not in st.session_state:
     st.session_state.login_mode = "Log in"
+
+if "signup_retry_until" not in st.session_state:
+    st.session_state.signup_retry_until = 0.0
 
 
 def render_html(content):
@@ -1691,9 +1699,10 @@ if not st.session_state.user_email:
         """
         <style>
         .login-page {
-            max-width: 1120px;
+            max-width: 1180px;
             margin: 0 auto;
-            padding-top: 1.5rem;
+            padding: 2.5rem 1rem 3rem;
+            position: relative;
         }
 
         header[data-testid="stHeader"] {
@@ -1705,14 +1714,28 @@ if not st.session_state.user_email:
         }
 
         .login-visual {
-            min-height: 520px;
-            padding: 48px 42px;
-            border-radius: 24px;
-            background: linear-gradient(145deg, #173247 0%, #237b73 100%);
+            min-height: 590px;
+            padding: 48px 46px 38px;
+            border-radius: 28px;
+            background:
+                radial-gradient(circle at 88% 12%, rgba(242, 193, 78, 0.22), transparent 24%),
+                linear-gradient(145deg, #102b3b 0%, #173247 46%, #237b73 100%);
             color: #f8fafc;
-            box-shadow: 0 24px 60px rgba(23, 50, 71, 0.18);
+            box-shadow: 0 28px 70px rgba(23, 50, 71, 0.22);
             overflow: hidden;
             position: relative;
+        }
+
+        .login-visual::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            opacity: 0.2;
+            background-image: linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+            background-size: 34px 34px;
+            mask-image: linear-gradient(135deg, black, transparent 70%);
+            pointer-events: none;
         }
 
         .login-visual::after {
@@ -1729,6 +1752,8 @@ if not st.session_state.user_email:
         }
 
         .login-kicker {
+            position: relative;
+            z-index: 1;
             color: #f2c14e;
             font-size: 0.76rem;
             font-weight: 800;
@@ -1737,14 +1762,19 @@ if not st.session_state.user_email:
         }
 
         .login-visual h1 {
+            position: relative;
+            z-index: 1;
             max-width: 420px;
-            margin: 56px 0 16px;
+            margin: 72px 0 16px;
             color: #f8fafc;
-            font-size: clamp(2.1rem, 4vw, 3.4rem);
+            font-size: clamp(2.4rem, 4.2vw, 4rem);
+            letter-spacing: -0.04em;
             line-height: 1.05;
         }
 
         .login-visual p {
+            position: relative;
+            z-index: 1;
             max-width: 390px;
             color: #d5e1e0;
             font-size: 1.05rem;
@@ -1752,6 +1782,8 @@ if not st.session_state.user_email:
         }
 
         .login-benefits {
+            position: relative;
+            z-index: 1;
             margin-top: 48px;
             color: #f8fafc;
             font-size: 0.92rem;
@@ -1763,11 +1795,55 @@ if not st.session_state.user_email:
             margin-right: 8px;
         }
 
+        .login-preview {
+            position: absolute;
+            right: 28px;
+            bottom: 30px;
+            z-index: 1;
+            width: 220px;
+            padding: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            background: rgba(9, 25, 37, 0.52);
+            box-shadow: 0 18px 36px rgba(7, 22, 32, 0.2);
+            backdrop-filter: blur(12px);
+            transform: rotate(-3deg);
+        }
+
+        .login-preview-label {
+            margin-bottom: 10px;
+            color: rgba(255, 255, 255, 0.62);
+            font-size: 0.65rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        .login-preview-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            color: #f8fafc;
+            font-size: 0.75rem;
+        }
+
+        .login-preview-dot {
+            width: 7px;
+            height: 7px;
+            flex: 0 0 7px;
+            border-radius: 50%;
+            background: #f2c14e;
+            box-shadow: 0 0 0 4px rgba(242, 193, 78, 0.12);
+        }
+
         .login-form-heading {
             margin: 0 0 0.35rem;
             color: #172033;
-            font-size: 1.65rem;
+            font-size: 1.8rem;
             font-weight: 800;
+            letter-spacing: -0.03em;
         }
 
         .login-form-copy {
@@ -1781,6 +1857,49 @@ if not st.session_state.user_email:
             color: #687486;
             font-size: 0.82rem;
             text-align: center;
+        }
+
+        .login-page [data-testid="stForm"] {
+            padding: 1.5rem 1.55rem 1.35rem;
+            border: 1px solid rgba(215, 222, 219, 0.9);
+            border-radius: 22px;
+            background: rgba(255, 255, 255, 0.72);
+            box-shadow: 0 20px 48px rgba(23, 50, 71, 0.08);
+            backdrop-filter: blur(12px);
+        }
+
+        .login-page [data-testid="stFormSubmitButton"] button {
+            min-height: 50px;
+            margin-top: 0.4rem;
+            border: 1px solid #c6e1dc !important;
+            border-radius: 13px !important;
+            background: #edf6f4 !important;
+            color: #237b73 !important;
+            letter-spacing: 0.01em;
+        }
+
+        .login-page [data-testid="stFormSubmitButton"] button:hover {
+            border-color: #237b73 !important;
+            background: #e1f0ed !important;
+            color: #1b655f !important;
+        }
+
+        .login-page [data-testid="stFormSubmitButton"] button[kind="primary"] {
+            border-color: #ff4b4b !important;
+            background: #ff4b4b !important;
+            color: #ffffff !important;
+        }
+
+        .login-page [data-testid="stFormSubmitButton"] button[kind="primary"]:hover {
+            border-color: #e33f3f !important;
+            background: #e33f3f !important;
+            color: #ffffff !important;
+        }
+
+        .login-page [data-testid="stTextInput"] label {
+            color: #536273;
+            font-size: 0.78rem;
+            font-weight: 700;
         }
 
         .login-page div.stButton > button {
@@ -1914,6 +2033,8 @@ if not st.session_state.user_email:
             .login-page {
                 margin-top: 1rem;
                 padding-top: 0;
+                padding-left: 0;
+                padding-right: 0;
             }
 
             .login-visual {
@@ -1923,6 +2044,14 @@ if not st.session_state.user_email:
 
             .login-visual h1 {
                 margin-top: 32px;
+            }
+
+            .login-preview {
+                position: relative;
+                right: auto;
+                bottom: auto;
+                width: min(220px, 100%);
+                margin: 34px 0 0 auto;
             }
 
             .login-benefits {
@@ -1948,6 +2077,17 @@ if not st.session_state.user_email:
                     <div><span>✓</span> See what needs your attention first</div>
                     <div><span>✓</span> Draft thoughtful replies in less time</div>
                     <div><span>✓</span> Keep your workflow moving</div>
+                </div>
+                <div class="login-preview" aria-hidden="true">
+                    <div class="login-preview-label">Today in your inbox</div>
+                    <div class="login-preview-row">
+                        <span class="login-preview-dot"></span>
+                        3 messages need a reply
+                    </div>
+                    <div class="login-preview-row">
+                        <span class="login-preview-dot"></span>
+                        12 newsletters sorted
+                    </div>
                 </div>
             </div>
             """,
@@ -2021,26 +2161,50 @@ if not st.session_state.user_email:
                     type="primary",
                     use_container_width=True,
                 )
+                reset_requested = st.form_submit_button(
+                    "Forgot password?",
+                    use_container_width=True,
+                )
+
+            if reset_requested:
+                normalized_email = email.strip().lower()
+                email_is_valid, email_error = validate_email_address(
+                    normalized_email
+                )
+                if not email_is_valid:
+                    st.error(email_error)
+                else:
+                    try:
+                        request_password_reset(normalized_email)
+                    except SupabaseAuthError as error:
+                        st.error(str(error))
+                    else:
+                        st.success(
+                            "If this email is registered, a password reset link has been sent."
+                        )
 
             if submitted:
                 normalized_email = email.strip().lower()
-                registered_password = st.session_state.registered_users.get(
-                    normalized_email
-                )
                 email_is_valid, email_error = validate_email_address(
                     normalized_email
                 )
 
                 if not email_is_valid:
                     st.error(email_error)
-                elif registered_password is None:
-                    st.info("No account found. Choose New user to create one.")
-                elif password != registered_password:
-                    st.error("That password does not match this account.")
                 else:
-                    st.session_state.user_email = normalized_email
-                    st.rerun()
+                    try:
+                        user = sign_in(normalized_email, password)
+                    except SupabaseAuthError as error:
+                        st.error(str(error))
+                    else:
+                        st.session_state.user_email = user.email or normalized_email
+                        st.rerun()
         else:
+            signup_retry_remaining = max(
+                0,
+                int(st.session_state.signup_retry_until - time.monotonic()),
+            )
+
             with st.form("register_form"):
                 name = st.text_input(
                     "Your name",
@@ -2064,6 +2228,12 @@ if not st.session_state.user_email:
                     "Create account",
                     type="primary",
                     use_container_width=True,
+                    disabled=signup_retry_remaining > 0,
+                )
+
+            if signup_retry_remaining > 0:
+                st.info(
+                    f"Please wait {signup_retry_remaining} seconds before trying again."
                 )
 
             if submitted:
@@ -2080,12 +2250,28 @@ if not st.session_state.user_email:
                     st.error("Use a password with at least 8 characters.")
                 elif password != confirm_password:
                     st.error("The passwords do not match.")
-                elif normalized_email in st.session_state.registered_users:
-                    st.error("An account with this email already exists.")
                 else:
-                    st.session_state.registered_users[normalized_email] = password
-                    st.session_state.user_email = normalized_email
-                    st.rerun()
+                    try:
+                        user, session = sign_up(normalized_email, password)
+                    except SupabaseAuthError as error:
+                        if error.retry_after_seconds:
+                            st.session_state.signup_retry_until = (
+                                time.monotonic() + error.retry_after_seconds
+                            )
+                            st.warning(
+                                "Please wait before trying again. "
+                                f"Supabase rate limit: {error.retry_after_seconds} seconds."
+                            )
+                        else:
+                            st.error(str(error))
+                    else:
+                        if session is None:
+                            st.success(
+                                "Account created. Confirm your email, then log in."
+                            )
+                        else:
+                            st.session_state.user_email = user.email or normalized_email
+                            st.rerun()
 
         st.markdown(
             '<div class="login-note">Private workspace access for your email triage.</div>',
@@ -2110,7 +2296,6 @@ with st.sidebar:
 
         <div class="sidebar-subtitle">
             Intelligent inbox automation<br>
-            {html.escape(st.session_state.user_email)}
         </div>
         """,
         unsafe_allow_html=True,
@@ -2217,15 +2402,6 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
-    if st.button(
-        "↪  Sign out",
-        use_container_width=True,
-    ):
-        st.session_state.user_email = ""
-        st.session_state.gmail_service = None
-        st.rerun()
-
-
 # =========================================================
 # HERO SECTION
 # =========================================================
@@ -2296,7 +2472,6 @@ col1, col2, col3 = st.columns([1.2, 1.2, 3])
 with col1:
     connect_clicked = st.button(
         "🔗 Connect Gmail",
-        type="primary",
         use_container_width=True,
     )
 
@@ -2874,7 +3049,7 @@ st.markdown(
     <div class="footer">
         ✦ MailMind AI
         <br>
-        Intelligent Inbox Automation · Built with Streamlit + Gemini
+        Intelligent Inbox Automation 
     </div>
     """,
     unsafe_allow_html=True,
