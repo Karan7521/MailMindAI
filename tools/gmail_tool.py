@@ -265,8 +265,10 @@ def get_unread_emails(gmail_service=None):
             "sender": sender,
             "subject": subject,
             "snippet": message.get("snippet", ""),
-            "body": body,
         }
+
+        if body:
+            email_data["body"] = body
 
         if html_body:
             email_data["html_body"] = html_body

@@ -1,16 +1,11 @@
 import os
 from dotenv import load_dotenv
-from google import genai
+from llm_service import generate_text, get_llm_model
 
 load_dotenv()
 
-API_KEY = os.getenv("GEMINI_API_KEY")
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
-
-client = None
-
-if API_KEY:
-    client = genai.Client(api_key=API_KEY)
+MODEL = os.getenv("GEMINI_MODEL", os.getenv("LLM_MODEL", "gemini-1.5-flash"))
+client = get_llm_model()
 
 
 def classify_email(subject, body):
@@ -36,7 +31,6 @@ def classify_email(subject, body):
     else:
         fallback = "Needs Reply"
 
-    # If Gemini API is not configured, use fallback
     if client is None:
         return fallback
 
@@ -58,12 +52,7 @@ Return ONLY the category name.
 """
 
     try:
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=prompt
-        )
-
-        result = response.text.strip()
+        result = generate_text(prompt, fallback=fallback)
 
         categories = [
             "Urgent",
@@ -79,5 +68,5 @@ Return ONLY the category name.
         return fallback
 
     except Exception as e:
-        print("Gemini error:", e)
+        print("LLM error:", e)
         return fallback

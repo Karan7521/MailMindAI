@@ -37,20 +37,13 @@ st.set_page_config(
 
 
 # =========================================================
-# GEMINI SETUP
+# LLM SETUP
 # =========================================================
 
 try:
-    import google.generativeai as genai
+    from llm_service import get_llm_model
 
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-    if GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
-        gemini_model = genai.GenerativeModel("gemini-1.5-flash")
-    else:
-        gemini_model = None
-
+    gemini_model = get_llm_model()
 except Exception:
     gemini_model = None
 

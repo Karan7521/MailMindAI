@@ -1,13 +1,12 @@
 import os
 
 from dotenv import load_dotenv
-from google import genai
+from llm_service import generate_text, get_llm_model
 
 load_dotenv()
 
-API_KEY = os.getenv("GEMINI_API_KEY")
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
-client = genai.Client(api_key=API_KEY) if API_KEY else None
+MODEL = os.getenv("GEMINI_MODEL", os.getenv("LLM_MODEL", "gemini-1.5-flash"))
+client = get_llm_model()
 
 
 def draft_reply(subject, body):
@@ -36,16 +35,12 @@ Rules:
 """
 
     try:
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=prompt
-        )
-
-        if response.text:
-            return response.text.strip()
+        reply = generate_text(prompt, fallback=fallback_reply)
+        if reply:
+            return reply.strip()
 
         return fallback_reply
 
     except Exception as e:
-        print("Gemini API error:", e)
+        print("LLM API error:", e)
         return fallback_reply
